@@ -1,4 +1,4 @@
-# openvpn
+# Wireguard
 Simple wireguard client  
 [Docker hub](https://hub.docker.com/r/zhdkirill/wireguard)
 
