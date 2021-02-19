@@ -25,6 +25,6 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: zhdkirill/wireguard:${{ steps.sha8.outputs.sha }}
+          tags: zhdkirill/wireguard:${{ steps.sha8.outputs.sha }}, zhdkirill/wireguard:latest
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
