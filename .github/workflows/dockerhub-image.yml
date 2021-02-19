@@ -1,8 +1,6 @@
 name: dockerhub-ci
 
-on:
-  push:
-    branches: main,tags
+on: [workflow_dispatch, push]
 
 jobs:
   main:
