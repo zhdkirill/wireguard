@@ -12,7 +12,7 @@ Simple wireguard client
 services:
   wireguard:
     container_name: wireguard
-    image: zhdkirill/wireguard
+    image: ghcr.io/zhdkirill/wireguard:latest
     cap_add:
       - net_admin
     volumes:
