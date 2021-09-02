@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM alpine:3.14
 RUN apk --no-cache --no-progress upgrade && \
     apk --no-cache --no-progress add wireguard-tools iptables
 RUN echo $'#!/usr/bin/env ash\n\
