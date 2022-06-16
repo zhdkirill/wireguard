@@ -1,8 +1,6 @@
 name: ghcr-ci
 
 on:
-  schedule:
-    - cron: '32 01 * * 1'
   push:
     branches:
       - main
