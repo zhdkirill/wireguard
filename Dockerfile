@@ -1,9 +1,11 @@
-FROM alpine:3.22.1
-RUN apk --no-cache --no-progress upgrade && \
-    apk --no-cache --no-progress add wireguard-tools iptables
-RUN echo $'#!/usr/bin/env ash\n\
-set -eo pipefail\n\
-wg-quick up wg0\n\
-sleep infinity' > /usr/local/bin/docker-entrypoint.sh && \
-    chmod +x /usr/local/bin/docker-entrypoint.sh
-ENTRYPOINT ["docker-entrypoint.sh"]
+FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.source="https://github.com/zhdkirill/wireguard" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
+RUN apk add --no-cache bash iproute2 iptables socat tini wireguard-tools
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/sbin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
