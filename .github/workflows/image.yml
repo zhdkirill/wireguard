@@ -17,12 +17,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Build x86_64 image
-        run: docker build --platform linux/amd64 --build-arg "VCS_REF=$GITHUB_SHA" -t wireguard:test .
-      - name: Record build inputs
+      - name: Check Bash syntax
         run: |
-          docker image inspect -f 'revision={{index .Config.Labels "org.opencontainers.image.revision"}} image={{.Id}}' wireguard:test
-          docker run --rm --entrypoint apk wireguard:test info -v
+          for script in entrypoint.sh status.sh tests/runtime.sh; do
+            bash -n "$script"
+          done
+      - name: Build x86_64 image
+        run: docker build --platform linux/amd64 -t wireguard:test .
       - name: Load kernel WireGuard on disposable runner
         run: sudo modprobe wireguard
       - name: Runtime tests

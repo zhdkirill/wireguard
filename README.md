@@ -2,7 +2,7 @@
 
 This image runs a kernel WireGuard interface in its container network namespace. It can also relay TCP traffic from that tunnel to a reachable SSH server. The relay forwards bytes; the destination SSH server retains its host key, authentication, and TCP-forwarding policy. A plain client remains the default.
 
-The base is Alpine 3.24.3, pinned to its multi-platform image digest in `Dockerfile`. CI currently builds and tests `linux/amd64`. Published image digests appear in the release workflow's job summary. Use a tested `repository@sha256:...` reference for deployment; a tag can move. The source revision is stored in the OCI `org.opencontainers.image.revision` label, and CI records the installed package versions at build time. Package repositories can change between builds, so the final image digest is the immutable release identity.
+The base is Alpine 3.24.3. CI currently builds and tests `linux/amd64`. Published images have commit-SHA tags, and their digests appear in the release workflow's job summary. Use a tested `repository@sha256:...` reference for deployment; a tag can move. Base images and package repositories can change between builds, so the final image digest identifies the exact release.
 
 ## Runtime inputs
 
@@ -61,9 +61,9 @@ The relay accepts only the configured source CIDR and listens only on the config
 
 ## Startup, status, and shutdown
 
-Startup validates the image inputs and configuration mount, runs `wg-quick up` once, and verifies that the resulting interface is native WireGuard. `wg-quick` handles configuration parsing, addresses, MTU, routes, DNS, and hooks, and reports its own errors. When enabled, the relay starts only after its bind address appears. The image includes no userspace WireGuard implementation. The entrypoint exits nonzero if setup fails, its owned interface disappears, or the relay listener dies. SIGTERM/SIGINT stops the relay and runs `wg-quick down` for the interface this instance created. Active relay connections end when the container stops.
+Startup checks the inputs and configuration mount, runs `wg-quick up` once, and verifies that the resulting interface is native WireGuard. `wg-quick` handles configuration parsing, addresses, MTU, routes, DNS, and hooks, and reports its own errors. When enabled, the relay starts after checking that its bind address belongs to the tunnel. The image includes no userspace WireGuard implementation. The entrypoint checks every two seconds and exits nonzero if its interface disappears or the relay listener dies. SIGTERM/SIGINT stops the relay and runs `wg-quick down` if the interface is still present. Active relay connections end when the container stops. Run the image in its own network namespace; external interface replacement is not supported.
 
-`wg-quick` stdout and stderr, including hook output, go directly to the container logs during startup and shutdown. Tool errors may include configuration values. The wrapper also reports interface and listener readiness; the relay does not log forwarded SSH payload. To inspect current local state without private keys:
+`wg-quick` stdout and stderr, including hook output, go directly to the container logs during startup and shutdown. Tool errors may include configuration values. The entrypoint reports failures without periodic or readiness logs; the relay does not log forwarded SSH payload. To inspect current local state without private keys:
 
 ```sh
 docker exec <container> wireguard-status
@@ -73,12 +73,12 @@ docker exec <container> wg show wg0 latest-handshakes
 
 `status` reports interface presence and the relay listening socket. A recent handshake indicates peer activity, but an old handshake can also mean an idle peer. Docker does not automatically restart an unhealthy but still running container. Validate reachability from the intended peer separately.
 
-Runtime code is split by responsibility: `entrypoint.sh` owns startup, traps, process IDs and supervision; `lib/wireguard.sh` handles config-mount and interface checks; `lib/relay.sh` handles relay validation and listener operations; `status.sh` provides the `wireguard-status` command. The libraries define functions without performing startup work when sourced. `entrypoint.sh status` remains an alias for the standalone status command.
+`entrypoint.sh` contains setup, cleanup, and the monitor loop. `status.sh` provides the standalone `wireguard-status` command; `entrypoint.sh status` is an alias for it. Status checks the native interface type and the configured listening socket; it does not test peer reachability.
 
 ## Compatibility and CI
 
 Existing `/etc/wireguard/wg0.conf` mounts work with the default plain-client mode. The new entrypoint exits when the interface cannot be created and cleans it up on shutdown. `SaveConfig=true` is no longer accepted. The image keeps `iptables` for existing trusted `wg-quick` hooks; the relay itself requires no NAT rules.
 
-Pull requests build and run disposable Linux tests without registry credentials. Tests cover native interface creation, peer handshake and data, the plain client, relay binding and source restriction, delayed replies after TCP half-close, SSH identity/authentication/forwarding, concurrent sessions, child failure, read-only configuration, restart, and invalid inputs. Publication on `main` or a version tag waits for the tests and loads the exact tested image from a workflow artifact. Docker Hub publishes on `main`; GHCR publishes on `main` and version tags. A passing CI run proves behavior on its Linux runner, not on a particular NAS kernel or SSH policy.
+Pull requests check Bash syntax, build the image, and run disposable Linux tests without registry credentials. Tests cover native interface creation, peer handshake and data, the plain client, relay binding and source restriction, delayed replies after TCP half-close, SSH identity/authentication/forwarding, concurrent sessions, child failure, read-only configuration, restart, and invalid inputs. Publication on `main` or a version tag waits for the tests and loads the exact tested image from a workflow artifact. Docker Hub publishes on `main`; GHCR publishes on `main` and version tags. A passing CI run proves behavior on its Linux runner, not on a particular NAS kernel or SSH policy.
 
 To run the same tests on a disposable x86_64 Linux Docker host with kernel WireGuard available, build `wireguard:test` and run `bash tests/runtime.sh`. The harness requires passwordless `sudo` to set root ownership on protected mounts. It creates an isolated Docker bridge, two containers, disposable keys, and a test-only OpenSSH fixture; it removes those runtime resources at exit. Never run this harness against a production Docker context. Image builds fetch packages from Alpine repositories.
