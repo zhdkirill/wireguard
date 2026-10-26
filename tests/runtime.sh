@@ -9,10 +9,11 @@ server=${prefix}-server
 client=${prefix}-client
 fixture=${prefix}-ssh
 holder=${prefix}-holder
+failed=${prefix}-failed
 umask 077
 
 cleanup() {
-  docker rm -f "$holder" "$client" "$server" >/dev/null 2>&1 || true
+  docker rm -f "$failed" "$holder" "$client" "$server" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -166,6 +167,25 @@ after=$(sudo sha256sum "$work/client.conf" | cut -d' ' -f1)
 [[ $before == "$after" ]] || fail 'read-only configuration changed'
 server_after=$(sudo sha256sum "$work/server.conf" | cut -d' ' -f1)
 [[ $server_before == "$server_after" ]] || fail 'server configuration changed on shutdown'
+
+# Keep the namespace alive so its destruction cannot hide missing startup cleanup.
+docker run -d --name "$holder" --network none --cap-drop ALL \
+  --entrypoint sleep "$image" infinity >/dev/null
+docker run -d --name "$failed" --network "container:$holder" --cap-drop ALL --cap-add NET_ADMIN \
+  -v "$work/server.conf:/etc/wireguard/wg0.conf:ro" \
+  -e RELAY_ENABLED=true -e RELAY_BIND_IP=10.77.0.2 -e RELAY_PORT=2222 \
+  -e RELAY_TARGET_HOST=127.0.0.1 -e RELAY_TARGET_PORT=22 \
+  -e RELAY_ALLOWED_SOURCE_CIDR=10.77.0.1/32 "$image" >/dev/null
+exit_code=$(timeout 15 docker wait "$failed")
+[[ $exit_code != 0 ]] || fail 'unassigned relay bind address did not fail startup'
+docker logs "$failed" 2>&1 | grep -q 'RELAY_BIND_IP is not assigned to the WireGuard interface' || fail 'relay bind diagnostic missing'
+docker logs "$failed" 2>&1 | grep -q '^wg-up-stdout$' || fail 'bind failure did not reach WireGuard setup'
+docker logs "$failed" 2>&1 | grep -q '^wg-down-stdout$' || fail 'bind failure did not run WireGuard cleanup'
+if docker exec "$holder" ip link show dev wg0 >/dev/null 2>&1; then
+  fail 'relay startup failure left its interface in the shared namespace'
+fi
+docker rm "$failed" >/dev/null
+docker rm -f "$holder" >/dev/null
 
 if timeout 15 docker run --rm --cap-drop ALL -v "$work/server.conf:/etc/wireguard/wg0.conf:ro" "$image" >"$work/no-cap.log" 2>&1; then
   fail 'startup succeeded without NET_ADMIN'

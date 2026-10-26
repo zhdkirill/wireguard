@@ -41,7 +41,9 @@ relay_check_bind() {
 }
 
 relay_is_listening() {
-  ss -H -lnt "sport = :${RELAY_PORT:-0}" | grep -Fq "${RELAY_BIND_IP:-invalid}:${RELAY_PORT:-0}"
+  ss -H -lnt "sport = :${RELAY_PORT:-0}" |
+    awk -v endpoint="${RELAY_BIND_IP:-invalid}:${RELAY_PORT:-0}" \
+      '$4 == endpoint { found=1 } END { exit !found }'
 }
 
 relay_run() {
