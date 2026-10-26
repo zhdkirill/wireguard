@@ -43,6 +43,8 @@ cat >"$work/server.conf" <<EOF
 PrivateKey = $server_key
 Address = 10.77.0.1/30
 ListenPort = 51820
+PostUp = printf 'wg-up-stdout\n'; printf 'wg-up-stderr\n' >&2
+PostDown = printf 'wg-down-stdout\n'; printf 'wg-down-stderr\n' >&2
 
 [Peer]
 PublicKey = $client_pub
@@ -55,6 +57,9 @@ sudo chown 0:0 "$work/server.conf"
 docker run -d --name "$server" --network "$network" --cap-add NET_ADMIN \
   -v "$work/server.conf:/etc/wireguard/wg0.conf:ro" "$fixture" >/dev/null
 ready "$server" 'relay=disabled'
+docker logs "$server" 2>&1 | grep -q '^wg-up-stdout$' || fail 'wg-quick stdout was hidden'
+docker logs "$server" 2>&1 | grep -q '^wg-up-stderr$' || fail 'wg-quick stderr was hidden'
+docker exec "$server" /usr/local/bin/wireguard-status | grep -q 'relay=disabled' || fail 'standalone status failed'
 server_ip=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$network\").IPAddress}}" "$server")
 
 cat >"$work/client.conf" <<EOF
@@ -143,6 +148,8 @@ docker run -d --name "$holder" --network "container:$server" --cap-drop ALL \
   --entrypoint sleep "$image" infinity >/dev/null
 docker stop -t 5 "$server" >/dev/null
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$server") == 0 ]] || fail 'graceful stop failed'
+docker logs "$server" 2>&1 | grep -q '^wg-down-stdout$' || fail 'wg-quick shutdown stdout was hidden'
+docker logs "$server" 2>&1 | grep -q '^wg-down-stderr$' || fail 'wg-quick shutdown stderr was hidden'
 if docker exec "$holder" ip link show dev wg0 >/dev/null 2>&1; then
   fail 'graceful stop left its interface in the shared namespace'
 fi
@@ -163,7 +170,7 @@ server_after=$(sudo sha256sum "$work/server.conf" | cut -d' ' -f1)
 if timeout 15 docker run --rm --cap-drop ALL -v "$work/server.conf:/etc/wireguard/wg0.conf:ro" "$image" >"$work/no-cap.log" 2>&1; then
   fail 'startup succeeded without NET_ADMIN'
 fi
-grep -q 'cannot create a kernel WireGuard interface' "$work/no-cap.log" || fail 'missing NET_ADMIN error was not actionable'
+grep -Eq 'Operation not permitted|Permission denied' "$work/no-cap.log" || fail 'native permission error was hidden'
 if timeout 15 docker run --rm --cap-drop ALL --cap-add NET_ADMIN -e RELAY_ENABLED=invalid \
   -v "$work/server.conf:/etc/wireguard/wg0.conf:ro" "$image" >"$work/invalid.log" 2>&1; then
   fail 'invalid relay selector succeeded'
@@ -191,8 +198,7 @@ if timeout 15 docker run --rm --cap-drop ALL --cap-add NET_ADMIN \
   -v "$work/malformed.conf:/etc/wireguard/wg0.conf:ro" "$image" >"$work/malformed.log" 2>&1; then
   fail 'malformed configuration succeeded'
 fi
-grep -Eq 'invalid WireGuard configuration|wg-quick failed' "$work/malformed.log" || fail 'malformed config error missing'
-if grep -q 'deliberately-invalid-key' "$work/malformed.log"; then fail 'config contents leaked'; fi
+grep -Eiq 'key.*(length|format)|configuration parsing error' "$work/malformed.log" || fail 'WireGuard config diagnostic was hidden'
 printf '[Interface]\nSaveConfig = true\n' >"$work/save.conf"
 sudo chown 0:0 "$work/save.conf"
 if timeout 15 docker run --rm --cap-drop ALL --cap-add NET_ADMIN \

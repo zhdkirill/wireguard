@@ -61,17 +61,19 @@ The relay accepts only the configured source CIDR and listens only on the config
 
 ## Startup, status, and shutdown
 
-Startup validates the inputs and file, confirms that a kernel interface can be created, and runs `wg-quick up`. When enabled, the relay starts only after its bind address appears. Failure to create the interface never falls back to a userspace implementation. The entrypoint exits nonzero if setup fails, its owned interface disappears, or the relay listener dies. SIGTERM/SIGINT stops the relay and runs `wg-quick down` for the interface this instance created. Normal `wg-quick` hooks still run on teardown. Active relay connections end when the container stops.
+Startup validates the image inputs and configuration mount, runs `wg-quick up` once, and verifies that the resulting interface is native WireGuard. `wg-quick` handles configuration parsing, addresses, MTU, routes, DNS, and hooks, and reports its own errors. When enabled, the relay starts only after its bind address appears. The image includes no userspace WireGuard implementation. The entrypoint exits nonzero if setup fails, its owned interface disappears, or the relay listener dies. SIGTERM/SIGINT stops the relay and runs `wg-quick down` for the interface this instance created. Active relay connections end when the container stops.
 
-The logs report the mode, interface, listener readiness, and bounded error messages; they do not print the configuration or forwarded SSH payload. To inspect current local state without private keys:
+`wg-quick` stdout and stderr, including hook output, go directly to the container logs during startup and shutdown. Tool errors may include configuration values. The wrapper also reports interface and listener readiness; the relay does not log forwarded SSH payload. To inspect current local state without private keys:
 
 ```sh
-docker exec <container> /usr/local/bin/entrypoint.sh status
+docker exec <container> wireguard-status
 docker exec <container> ip -d link show wg0
 docker exec <container> wg show wg0 latest-handshakes
 ```
 
 `status` reports interface presence and the relay listening socket. A recent handshake indicates peer activity, but an old handshake can also mean an idle peer. Docker does not automatically restart an unhealthy but still running container. Validate reachability from the intended peer separately.
+
+Runtime code is split by responsibility: `entrypoint.sh` owns startup, traps, process IDs and supervision; `lib/wireguard.sh` handles config-mount and interface checks; `lib/relay.sh` handles relay validation and listener operations; `status.sh` provides the `wireguard-status` command. The libraries define functions without performing startup work when sourced. `entrypoint.sh status` remains an alias for the standalone status command.
 
 ## Compatibility and CI
 

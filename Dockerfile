@@ -6,6 +6,8 @@ LABEL org.opencontainers.image.source="https://github.com/zhdkirill/wireguard" \
 
 RUN apk add --no-cache bash iproute2 iptables socat tini wireguard-tools
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 0755 /usr/local/bin/entrypoint.sh
+COPY status.sh /usr/local/bin/wireguard-status
+COPY lib/ /usr/local/lib/wireguard/
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/wireguard-status
 
 ENTRYPOINT ["/sbin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
